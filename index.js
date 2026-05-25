@@ -15,7 +15,15 @@ if (fs.existsSync('./db.json')) {
 }
 function save() { fs.writeFileSync('./db.json', JSON.stringify(db, null, 2)); }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMembers, 
+        GatewayIntentBits.GuildVoiceStates, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.MessageContent
+    ] 
+});
 
 function checar(t) { return db.palavras_proibidas.some(p => unidecode(t).toLowerCase().includes(p)); }
 
@@ -25,7 +33,9 @@ client.on('messageCreate', async (m) => {
         await m.delete().catch(() => {});
         const s = db.servidores[m.guild.id];
         if (s?.logMsg) {
-            client.channels.cache.get(s.logMsg)?.send({ embeds: [new EmbedBuilder().setTitle('📝 Filtro: Mensagem Bloqueada').setColor('#FFCC00').setDescription(`👤 **Usuário:** ${m.author.tag}\n💬 **Conteúdo:** \`${m.content}\`\n📍 **Canal:** <#${m.channel.id}>`)]});
+            client.channels.cache.get(s.logMsg)?.send({ 
+                embeds: [new EmbedBuilder().setTitle('📝 Filtro: Mensagem Bloqueada').setColor('#FFCC00').setDescription(`👤 **Usuário:** ${m.author.tag}\n💬 **Conteúdo:** \`${m.content}\`\n📍 **Canal:** <#${m.channel.id}>`)]
+            });
         }
         if (db.global.logMsg) client.channels.cache.get(db.global.logMsg)?.send(`🌐 **[GLOBAL]** Servidor \`${m.guild.name}\`: ${m.author.tag} enviou msg proibida.`);
     }
@@ -33,6 +43,7 @@ client.on('messageCreate', async (m) => {
 
 client.on('interactionCreate', async (i) => {
     if (i.isChatInputCommand()) {
+        // --- PAINEL DO DEV ---
         if (i.commandName === 'dev') {
             if (i.user.id !== DEV_ID) return i.reply({ content: '❌ **Acesso negado!**', ephemeral: true });
             const sub = i.options.getSubcommand();
@@ -41,6 +52,7 @@ client.on('interactionCreate', async (i) => {
             if (sub === 'sair') { const g = client.guilds.cache.get(i.options.getString('id')); await g?.leave(); i.reply(`✅ **Saí do servidor com sucesso!**`); }
         }
 
+        // --- PAINEL DA STAFF ---
         if (i.commandName === 'configurar') {
             if (!i.member.permissions.has('ManageGuild')) return i.reply({ content: '❌ **Permissão negada!**', ephemeral: true });
             const menu = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('m').addOptions([
@@ -62,12 +74,12 @@ client.on('ready', async () => {
     const cmds = [
         new SlashCommandBuilder().setName('configurar').setDescription('⚙️ Configura os canais do servidor'),
         new SlashCommandBuilder().setName('dev').setDescription('🛠️ Painel exclusivo de desenvolvedor')
-            .addSubcommand(s => s.setName('logban').addChannelOption(o => o.setName('c').setDescription('Canal').setRequired(true)))
-            .addSubcommand(s => s.setName('servidores').setDescription('Lista servidores'))
-            .addSubcommand(s => s.setName('sair').addStringOption(o => o.setName('id').setDescription('ID do servidor').setRequired(true)))
+            .addSubcommand(s => s.setName('logban').setDescription('Define canal de logs de ban global').addChannelOption(o => o.setName('c').setDescription('Canal').setRequired(true)))
+            .addSubcommand(s => s.setName('servidores').setDescription('Lista servidores conectados'))
+            .addSubcommand(s => s.setName('sair').setDescription('Faz o bot sair de um servidor').addStringOption(o => o.setName('id').setDescription('ID do servidor').setRequired(true)))
     ];
     await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(client.user.id), { body: cmds });
-    console.log('✅ Zyphor V3 Online com Emojis!');
+    console.log('✅ Zyphor V3 Online!');
 });
 
 client.login(TOKEN);
