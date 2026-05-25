@@ -3,12 +3,16 @@ const unidecode = require('unidecode');
 const fs = require('fs');
 const http = require('http');
 
-http.createServer((req, res) => res.end('Zyphor Online')).listen(process.env.PORT || 3000);
+// Servidor para manter online na Railway
+http.createServer((req, res) => res.end('Zyphor V3 Online')).listen(process.env.PORT || 3000);
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_ID = '1460149186577174680';
 let db = { servidores: {}, global: { logBan: null, logMsg: null }, palavras_proibidas: ['fdp', 'pnc'] };
-if (fs.existsSync('./db.json')) db = JSON.parse(fs.readFileSync('./db.json', 'utf-8'));
+
+if (fs.existsSync('./db.json')) {
+    try { db = JSON.parse(fs.readFileSync('./db.json', 'utf-8')); } catch(e) { console.error("Erro ao ler DB"); }
+}
 function save() { fs.writeFileSync('./db.json', JSON.stringify(db, null, 2)); }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
@@ -67,4 +71,3 @@ client.on('ready', async () => {
 });
 
 client.login(TOKEN);
-
