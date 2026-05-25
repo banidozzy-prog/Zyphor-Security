@@ -1,0 +1,12 @@
+{
+  "name": "zyphor-security",
+  "version": "3.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "unidecode": "^1.1.1"
+  }
+}
