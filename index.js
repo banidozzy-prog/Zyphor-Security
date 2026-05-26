@@ -1,85 +1,79 @@
-const { Client, GatewayIntentBits, REST, Routes, PermissionsBitField, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const unidecode = require('unidecode');
 const fs = require('fs');
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const APP_ID = '1507876666146291772';
-const DEV_ID = '1460149186577174680';
 const dbFile = './db.json';
-
-let db = fs.existsSync(dbFile) ? JSON.parse(fs.readFileSync(dbFile)) : { global: { logs: { ban: '', msg: '' } }, palavras: [] };
+let db = fs.existsSync(dbFile) ? JSON.parse(fs.readFileSync(dbFile)) : { palavras: [] };
 function save() { fs.writeFileSync(dbFile, JSON.stringify(db, null, 2)); }
 
-const client = new Client({ 
-    intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.GuildMembers, 
-        GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildVoiceStates
-    ] 
-});
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-// Filtro agressivo: remove tudo, converte símbolos/letras gregas/fontes em texto simples
+// --- MOTOR DE DETECÇÃO (ANTI-NICK BURLADO + MENSAGENS) ---
 function isMalicious(text) {
-    if (!text) return false;
-    let limpo = unidecode(text).toLowerCase().replace(/[^a-z0-9]/g, '');
-    const blacklist = ['1apgratis', 'linknabio', 'gratis', 'scam', 'vagas', 'lideranca', 'phishing', 'fakenitro', 'discordgg', ...db.palavras];
-    return blacklist.some(p => limpo.includes(p.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    // 1. Detecta caracteres invisíveis (burlados) e letras gregas
+    const isBurlado = /[\x00-\x1F\x7F-\x9F]/.test(text) || /[\u0370-\u03FF]/.test(text);
+    
+    // 2. Detecta blacklist + palavras adicionadas
+    const limpo = unidecode(text).toLowerCase();
+    const blacklist = ['ap gratis', 'link na bio', 'gratis', 'scam', 'vagas', 'lideranca', 'org', 'phishing', 'fake nitro'];
+    const todasPalavras = [...blacklist, ...(db.palavras || [])];
+    const temPalavraProibida = todasPalavras.some(p => limpo.includes(p.toLowerCase()));
+    
+    return isBurlado || temPalavraProibida;
 }
 
-async function banir(member, motivo) {
-    if (member.id === DEV_ID) return;
-    try {
-        await member.ban({ reason: `Zyphor V3: ${motivo}` });
-        const channel = client.channels.cache.get(db.global.logs.ban);
-        if (channel) {
-            const embed = new EmbedBuilder().setColor(0xFF0000).setTitle('🚨 BANIMENTO AUTOMÁTICO')
-                .addFields({ name: 'Usuário', value: member.user.tag }, { name: 'Motivo', value: motivo });
-            channel.send({ embeds: [embed] }).catch(() => {});
-        }
-    } catch (e) { console.log(`Erro ao banir ${member.user.tag}: ${e.message}`); }
+// --- LOG LOCAL ---
+async function sendServerLog(guild, member, type, content) {
+    const channel = guild.channels.cache.find(c => c.isTextBased()) || guild.systemChannel;
+    if (!channel) return;
+
+    const embed = new EmbedBuilder()
+        .setColor(type === 'ban' ? 0xFF0000 : 0xFFA500)
+        .setTitle(type === 'ban' ? '🚨 BLOQUEIO DE NICK (ANTI-BURLA)' : '💬 MENSAGEM BLOQUEADA')
+        .addFields(
+            { name: '👤 Usuário', value: member.user.tag, inline: true },
+            { name: type === 'ban' ? '📛 Nick' : '📝 Conteúdo', value: content || 'N/A', inline: false }
+        )
+        .setTimestamp();
+    channel.send({ embeds: [embed] }).catch(() => {});
 }
+
+// --- EVENTOS ---
+client.on('messageCreate', async (msg) => {
+    if (msg.author.bot || !msg.guild) return;
+    if (isMalicious(msg.content)) {
+        await msg.delete().catch(() => {});
+        sendServerLog(msg.guild, msg.member, 'msg', msg.content);
+    }
+});
 
 client.on('guildMemberAdd', async (m) => {
-    await m.fetch().catch(() => {});
-    if (isMalicious(m.displayName)) await banir(m, 'Nome Malicioso (Entrada)');
+    if (isMalicious(m.displayName)) {
+        await m.ban({ reason: 'Zyphor V3: Nick Burlado Detectado' }).catch(() => {});
+        sendServerLog(m.guild, m, 'ban', m.displayName);
+    }
 });
 
-client.on('guildMemberUpdate', async (oldM, newM) => {
-    if (oldM.displayName !== newM.displayName && isMalicious(newM.displayName)) await banir(newM, 'Nome Malicioso (Mudança)');
-});
-
-client.on('voiceStateUpdate', async (oldS, newS) => {
-    if (newS.channelId && newS.member && isMalicious(newS.member.displayName)) await banir(newS.member, 'Nome Malicioso (Call)');
+// --- COMANDOS ---
+client.on('ready', async () => {
+    const commands = [
+        { name: 'painel', description: '⚙️ Painel da Staff' },
+        { name: 'addpalavra', description: '➕ Adicionar palavra', options: [{ name: 'palavras', type: 3, required: true, description: 'Ex: fdp,pnc' }] }
+    ];
+    await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('✅ ZYPHOR V3 ATIVO - PROTEÇÃO ANTI-BURLA ATIVA');
 });
 
 client.on('interactionCreate', async (i) => {
     if (!i.isChatInputCommand()) return;
-    await i.deferReply({ ephemeral: true });
     if (i.commandName === 'addpalavra') {
-        db.palavras.push(...i.options.getString('palavras').split(','));
+        const novas = i.options.getString('palavras').split(',');
+        db.palavras = [...(db.palavras || []), ...novas];
         save();
-        return i.editReply('✅ Palavras adicionadas.');
+        i.reply({ content: '✅ Palavras adicionadas à proteção.', ephemeral: true });
     }
-    if (i.user.id !== DEV_ID) return i.editReply('❌ Acesso negado.');
-    if (i.commandName === 'servidores') return i.editReply(client.guilds.cache.map(g => g.name).join('\n'));
-    if (i.commandName === 'globallogs') {
-        db.global.logs[i.options.getString('tipo')] = i.options.getChannel('canal').id;
-        save();
-        return i.editReply('✅ Canal configurado.');
-    }
-});
-
-client.once('clientReady', async (c) => {
-    console.log(`✅ ZYPHOR V3 ATIVO em ${c.user.tag}`);
-    const cmds = [
-        { name: 'addpalavra', description: '➕', options: [{ name: 'palavras', type: 3, required: true, description: '...' }] },
-        { name: 'servidores', description: '👑' },
-        { name: 'globallogs', description: '👑', options: [{ name: 'tipo', type: 3, required: true, choices: [{name:'Ban', value:'ban'}]}, { name: 'canal', type: 7, required: true }] }
-    ];
-    await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(APP_ID), { body: cmds });
+    if (i.commandName === 'painel') i.reply({ content: '⚙️ Painel do ZYPHOR V3 operacional.', ephemeral: true });
 });
 
 client.login(TOKEN);
-
