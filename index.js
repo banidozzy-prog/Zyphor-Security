@@ -16,7 +16,6 @@ function save() { fs.writeFileSync(dbFile, JSON.stringify(db, null, 2)); }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-// --- MOTOR DE DETECÇÃO ---
 function isMalicious(text) {
     const isBurlado = /[\x00-\x1F\x7F-\x9F]/.test(text) || /[\u0370-\u03FF]/.test(text);
     const limpo = unidecode(text).toLowerCase();
@@ -26,7 +25,6 @@ function isMalicious(text) {
     return isBurlado || temPalavraProibida;
 }
 
-// --- LOGS ---
 async function sendLog(guild, member, type, content) {
     if (!db.stats[guild.id]) db.stats[guild.id] = { bans: 0, msgs: 0, nome: guild.name };
     db.stats[guild.id][type === 'ban' ? 'bans' : 'msgs']++;
@@ -45,7 +43,6 @@ async function sendLog(guild, member, type, content) {
     channel.send({ embeds: [embed] }).catch(() => {});
 }
 
-// --- COMANDOS ---
 client.on('ready', async () => {
     const commands = [
         { name: 'painel', description: '⚙️ Painel da Staff' },
@@ -106,5 +103,11 @@ client.on('messageCreate', async (msg) => {
     }
 });
 
-client.on('guildMember
+client.on('guildMemberAdd', async (m) => {
+    if (isMalicious(m.displayName)) {
+        await m.ban({ reason: 'Zyphor V3: Nick Burlado' }).catch(() => {});
+        sendLog(m.guild, m, 'ban', m.displayName);
+    }
+});
 
+client.login(TOKEN);
