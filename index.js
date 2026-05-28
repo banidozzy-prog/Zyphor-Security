@@ -6,13 +6,13 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_ID = '1460149186577174680';
 const dbFile = './db.json';
 
-// Emojis (Usando o formato de string para renderizar no Discord)
+// Emojis
 const E = {
-    editar: '<:editar:1501473720680583228>', id: '<:id:1507816963811049572>', 
-    proibido: '<:proibido:1508982666056171631>', criar: '<:criar:1507816968286375976>', 
-    cancelar: '<:cancelar:1509027635714326669>', confirmar: '<:corfimar:1509027559701086258>', 
-    msgs: '<:mgs:1503163398395920464>', link: '<:link:1503163783139557461>', 
-    doc: '<:documento:1507816962062029002>', hora: '<a:horaa:1501992592034762804>'
+    proibido: '<:proibido:1508982666056171631>', 
+    confirmar: '<:corfimar:1509027559701086258>', 
+    cancelar: '<:cancelar:1509027635714326669>', 
+    msgs: '<:mgs:1503163398395920464>', 
+    hora: '<a:horaa:1501992592034762804>'
 };
 
 let db = fs.existsSync(dbFile) ? JSON.parse(fs.readFileSync(dbFile)) : { 
@@ -53,28 +53,27 @@ async function sendLog(guild, member, type, content) {
     if (channel) {
         const embed = new EmbedBuilder()
             .setColor(type === 'ban' ? 0xFF0000 : 0xFF8C00)
-            .setTitle(type === 'ban' ? `${E.proibido} BAN AUTOMÁTICO` : `${E.doc} SEGURANÇA`)
-            .addFields(
-                { name: `${E.id} Usuário`, value: `${member.user.tag}`, inline: true },
-                { name: `${E.editar} Motivo`, value: content || 'N/A' }
-            ).setTimestamp();
+            .setTitle(type === 'ban' ? '🚨 BAN AUTOMÁTICO' : '🚫 SEGURANÇA')
+            .setDescription(`**Usuário:** ${member.user.tag}\n**Motivo:** ${content}`)
+            .setTimestamp();
         channel.send({ embeds: [embed] }).catch(() => {});
     }
 }
 
-client.on('voiceStateUpdate', async (oldState, newState) => {
-    if (newState.channelId && newState.member && isMalicious(newState.member.displayName)) {
-        await newState.member.ban({ reason: 'Zyphor V3: Nick Burlado' }).catch(() => {});
-        crossBan(newState.member.id, 'Nick Malicioso na Call');
-        sendLog(newState.guild, newState.member, 'ban', 'Banido ao entrar na Call');
-    }
-});
-
-client.on('guildMemberAdd', async (m) => {
-    if (isMalicious(m.displayName)) {
-        await m.ban({ reason: 'Zyphor V3: Nick Burlado' }).catch(() => {});
-        crossBan(m.id, 'Nick Malicioso no ingresso');
-    }
+client.on('ready', async () => {
+    const commands = [
+        { name: 'painel', description: '⚙️ Painel da Staff' },
+        { name: 'addpalavra', description: '➕ Adicionar', options: [{ name: 'palavra', type: 3, required: true, description: 'Ex: fdp,macaco' }] },
+        { name: 'remover', description: '➖ Remover', options: [{ name: 'palavra', type: 3, required: true, description: 'Palavra' }] },
+        { name: 'verpalavras', description: '📜 Lista' },
+        { name: 'servidores', description: '👑 Painel DEV' },
+        { name: 'setlog', description: '📑 Logs', options: [
+            { name: 'tipo', type: 3, required: true, choices: [{name:'Mensagens', value:'msg'}, {name:'Bans', value:'ban'}], description: 'Tipo' },
+            { name: 'canal', type: 7, required: true, description: 'Canal' }
+        ]}
+    ];
+    await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('✅ ZYPHOR V3 ATIVO');
 });
 
 client.on('interactionCreate', async (i) => {
@@ -84,23 +83,51 @@ client.on('interactionCreate', async (i) => {
     try {
         if (i.commandName === 'servidores') {
             if (i.user.id !== DEV_ID) return i.editReply({ content: '❌ Acesso negado.' });
-            let resposta = "";
+            let r = "📊 **Stats dos Servidores:**\n\n";
             for (const [id, s] of Object.entries(db.stats)) {
-                const guild = client.guilds.cache.get(id);
-                let invite = "Sem convite";
-                try {
-                    const channel = guild.channels.cache.find(c => c.type === 0);
-                    if (channel) invite = (await channel.createInvite({ maxAge: 0 })).url;
-                } catch(e) {}
-                resposta += `**${s.nome}**\n${E.proibido} Bans: ${s.bans} | ${E.msgs} Msgs: ${s.msgs}\n${E.link} ${invite}\n\n`;
+                r += `**${s.nome}**\n${E.proibido} Bans: ${s.bans} | ${E.msgs} Msgs: ${s.msgs}\n\n`;
             }
-            await i.editReply({ embeds: [new EmbedBuilder().setTitle(`${E.hora} Painel DEV`).setDescription(resposta || 'Sem dados.')] });
+            await i.editReply({ embeds: [new EmbedBuilder().setTitle(`${E.hora} Painel DEV`).setDescription(r || 'Sem dados.')] });
+        }
+        else if (i.commandName === 'addpalavra') {
+            i.options.getString('palavra').split(',').forEach(p => { if (!db.palavras.includes(p.trim().toLowerCase())) db.palavras.push(p.trim().toLowerCase()); });
+            save();
+            await i.editReply({ content: `${E.confirmar} Palavras adicionadas.` });
+        }
+        else if (i.commandName === 'remover') {
+            const p = i.options.getString('palavra').toLowerCase();
+            db.palavras = db.palavras.filter(w => w !== p);
+            save();
+            await i.editReply({ content: `${E.confirmar} Removido.` });
+        }
+        else if (i.commandName === 'verpalavras') {
+            await i.editReply({ content: `📜 **Lista:** ${db.palavras.join(', ') || 'Vazia'}` });
         }
         else if (i.commandName === 'painel') {
-            await i.editReply({ content: `${E.confirmar} **Zyphor V3** operando com segurança total.` });
+            await i.editReply({ content: `${E.confirmar} Zyphor V3 operando.` });
         }
-        // ... (demais comandos seguem a mesma lógica)
-    } catch (e) { await i.editReply({ content: `${E.cancelar} Erro ao processar.` }); }
+        else if (i.commandName === 'setlog') {
+            db.logs[i.options.getString('tipo')] = i.options.getChannel('canal').id;
+            save();
+            await i.editReply({ content: '✅ Log setado.' });
+        }
+    } catch (e) { await i.editReply({ content: `${E.cancelar} Erro.` }); }
+});
+
+client.on('messageCreate', async (msg) => {
+    if (msg.author.bot || !msg.guild) return;
+    if (isMalicious(msg.content)) {
+        await msg.delete().catch(() => {});
+        sendLog(msg.guild, msg.member, 'msg', 'Conteúdo malicioso');
+    }
+});
+
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    if (newState.channelId && newState.member && isMalicious(newState.member.displayName)) {
+        await newState.member.ban({ reason: 'Zyphor V3: Nick Burlado' }).catch(() => {});
+        crossBan(newState.member.id, 'Nick Malicioso em Call');
+        sendLog(newState.guild, newState.member, 'ban', 'Banido ao entrar na Call');
+    }
 });
 
 client.login(TOKEN);
