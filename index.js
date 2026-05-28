@@ -6,7 +6,6 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_ID = '1460149186577174680';
 const dbFile = './db.json';
 
-// Emojis
 const E = {
     proibido: '<:proibido:1508982666056171631>', 
     confirmar: '<:corfimar:1509027559701086258>', 
@@ -29,10 +28,11 @@ const client = new Client({ intents: [
 
 function isMalicious(text) {
     const isBurlado = /[\x00-\x1F\x7F-\x9F]/.test(text) || /[\u0370-\u03FF]/.test(text) || /[\u1D00-\u1D7F]/.test(text);
+    const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|\b\w+\.\w{2,}\/\S+)/i;
     const limpo = unidecode(text).toLowerCase().replace(/[^a-z0-9]/g, '');
     const blacklistDefault = ['apgratis', 'linknabio', 'gratis', 'scam', 'vagas', 'lideranca', 'org', 'phishing', 'fakenitro'];
     const todasPalavras = [...blacklistDefault, ...db.palavras.map(p => p.replace(/[^a-z0-9]/g, ''))];
-    return isBurlado || todasPalavras.some(p => limpo.includes(p));
+    return isBurlado || urlRegex.test(text) || todasPalavras.some(p => limpo.includes(p));
 }
 
 async function crossBan(userId, reason) {
@@ -67,6 +67,7 @@ client.on('ready', async () => {
         { name: 'remover', description: '➖ Remover', options: [{ name: 'palavra', type: 3, required: true, description: 'Palavra' }] },
         { name: 'verpalavras', description: '📜 Lista' },
         { name: 'servidores', description: '👑 Painel DEV' },
+        { name: 'sair', description: '🚪 Sai de um servidor', options: [{ name: 'id', type: 3, required: true, description: 'ID do servidor' }] },
         { name: 'setlog', description: '📑 Logs', options: [
             { name: 'tipo', type: 3, required: true, choices: [{name:'Mensagens', value:'msg'}, {name:'Bans', value:'ban'}], description: 'Tipo' },
             { name: 'canal', type: 7, required: true, description: 'Canal' }
@@ -85,9 +86,16 @@ client.on('interactionCreate', async (i) => {
             if (i.user.id !== DEV_ID) return i.editReply({ content: '❌ Acesso negado.' });
             let r = "📊 **Stats dos Servidores:**\n\n";
             for (const [id, s] of Object.entries(db.stats)) {
-                r += `**${s.nome}**\n${E.proibido} Bans: ${s.bans} | ${E.msgs} Msgs: ${s.msgs}\n\n`;
+                r += `**${s.nome}** (ID: ${id})\n${E.proibido} Bans: ${s.bans} | ${E.msgs} Msgs: ${s.msgs}\n\n`;
             }
             await i.editReply({ embeds: [new EmbedBuilder().setTitle(`${E.hora} Painel DEV`).setDescription(r || 'Sem dados.')] });
+        }
+        else if (i.commandName === 'sair') {
+            if (i.user.id !== DEV_ID) return i.editReply({ content: '❌ Acesso negado.' });
+            const g = client.guilds.cache.get(i.options.getString('id'));
+            if (!g) return i.editReply({ content: '❌ Servidor não encontrado.' });
+            await g.leave();
+            await i.editReply({ content: `🚪 Saí do servidor: ${g.name}` });
         }
         else if (i.commandName === 'addpalavra') {
             i.options.getString('palavra').split(',').forEach(p => { if (!db.palavras.includes(p.trim().toLowerCase())) db.palavras.push(p.trim().toLowerCase()); });
@@ -118,7 +126,7 @@ client.on('messageCreate', async (msg) => {
     if (msg.author.bot || !msg.guild) return;
     if (isMalicious(msg.content)) {
         await msg.delete().catch(() => {});
-        sendLog(msg.guild, msg.member, 'msg', 'Conteúdo malicioso');
+        sendLog(msg.guild, msg.member, 'msg', 'Conteúdo malicioso/Link');
     }
 });
 
