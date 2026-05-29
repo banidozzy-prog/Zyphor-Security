@@ -1,13 +1,10 @@
-const { 
-    Client, GatewayIntentBits, EmbedBuilder, REST, Routes, InteractionResponseFlags 
-} = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const DEV_ID = '1460149186577174680';
 const dbFile = './db.json';
 
-// Inicialização do Banco
 let db = fs.existsSync(dbFile) ? JSON.parse(fs.readFileSync(dbFile)) : { 
     palavras: [], logs: { msg: '', ban: '', cargo: '' } 
 };
@@ -21,7 +18,6 @@ const client = new Client({
     ] 
 });
 
-// Funções de Proteção
 const isMalicious = (text) => {
     if (!text) return false;
     const lower = text.toLowerCase();
@@ -41,7 +37,6 @@ const sendLog = async (guild, member, type, content) => {
     channel.send({ embeds: [embed] }).catch(() => {});
 };
 
-// Registro de Comandos
 client.once('clientReady', async (c) => {
     const commands = [
         { name: 'servidores', description: 'Lista servidores' },
@@ -57,33 +52,38 @@ client.once('clientReady', async (c) => {
 
     try {
         await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(c.user.id), { body: commands });
-        console.log(`✅ Zyphor V3 online como ${c.user.tag} | Comandos registrados.`);
+        console.log(`✅ Zyphor V3 online! Comandos registrados.`);
     } catch (e) { console.error('❌ Falha ao registrar:', e); }
 });
 
-// Interações
 client.on('interactionCreate', async (i) => {
     if (!i.isChatInputCommand()) return;
-    await i.deferReply({ flags: [InteractionResponseFlags.Ephemeral] });
+    
+    // CORREÇÃO: Usando flags: [64] para evitar o erro de "undefined" mostrado em 45811.jpg
+    await i.deferReply({ flags: [64] });
 
-    if (i.commandName === 'setlog') {
-        db.logs[i.options.getString('tipo')] = i.options.getChannel('canal').id;
-        save();
-        i.editReply('✅ Log atualizado.');
-    } else if (i.commandName === 'addpalavra') {
-        const words = i.options.getString('palavra').split(',').map(p => p.trim().toLowerCase());
-        words.forEach(p => { if (!db.palavras.includes(p)) db.palavras.push(p); });
-        save();
-        i.editReply(`✅ Palavras salvas: ${words.join(', ')}`);
-    } else if (i.commandName === 'verpalavras') {
-        i.editReply(`📜 **Palavras:** ${db.palavras.join(', ') || 'Vazia'}`);
-    } else if (i.commandName === 'sair' && i.user.id === DEV_ID) {
-        const g = client.guilds.cache.get(i.options.getString('id'));
-        if (g) { await g.leave(); i.editReply('🚪 Saiu.'); } else i.editReply('❌ Servidor não encontrado.');
-    }
+    try {
+        if (i.commandName === 'setlog') {
+            db.logs[i.options.getString('tipo')] = i.options.getChannel('canal').id;
+            save();
+            i.editReply('✅ Log atualizado.');
+        } else if (i.commandName === 'addpalavra') {
+            const words = i.options.getString('palavra').split(',').map(p => p.trim().toLowerCase());
+            words.forEach(p => { if (!db.palavras.includes(p)) db.palavras.push(p); });
+            save();
+            i.editReply(`✅ Palavras salvas: ${words.join(', ')}`);
+        } else if (i.commandName === 'verpalavras') {
+            i.editReply(`📜 **Palavras:** ${db.palavras.join(', ') || 'Vazia'}`);
+        } else if (i.commandName === 'sair' && i.user.id === DEV_ID) {
+            const g = client.guilds.cache.get(i.options.getString('id'));
+            if (g) { await g.leave(); i.editReply('🚪 Saiu.'); } else i.editReply('❌ Servidor não encontrado.');
+        } else if (i.commandName === 'servidores' && i.user.id === DEV_ID) {
+            let r = client.guilds.cache.map(g => `**${g.name}** (\`${g.id}\`)`).join('\n');
+            i.editReply(r || 'Nenhum servidor.');
+        }
+    } catch (e) { i.editReply('❌ Erro no comando.'); }
 });
 
-// Eventos de Segurança
 client.on('messageCreate', (m) => {
     if (m.author.bot || !m.guild) return;
     if (isMalicious(m.content)) { m.delete().catch(() => {}); sendLog(m.guild, m.member, 'msg', 'Mensagem bloqueada.'); }
