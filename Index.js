@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, InteractionResponseFlags } = require('discord.js');
 const unidecode = require('unidecode');
 const fs = require('fs');
 
@@ -37,7 +37,7 @@ async function crossBan(userId, reason) {
     client.guilds.cache.forEach(async (guild) => {
         try {
             const member = await guild.members.fetch(userId);
-            if (member && member.bannable) await member.ban({ reason: `Zyphor V3 CrossBan: ${reason}` });
+            if (member && member.bannable) await member.ban({ reason: `Zyphor V3: ${reason}` });
         } catch (e) {}
     });
 }
@@ -56,39 +56,46 @@ async function sendLog(guild, member, type, content) {
     }
 }
 
-client.on('ready', async () => {
+client.once('clientReady', async (c) => {
     const commands = [
         { name: 'servidores', description: 'Painel DEV' },
-        { name: 'setlog', description: 'Logs', options: [{ name: 'tipo', type: 3, required: true, choices: [{name:'Mensagens', value:'msg'}, {name:'Bans', value:'ban'}, {name:'Cargos', value:'cargo'}], description: 'Tipo' }, { name: 'canal', type: 7, required: true, description: 'Canal' }] },
-        { name: 'addpalavra', description: 'Add', options: [{ name: 'palavra', type: 3, required: true, description: 'Ex: fdp,pnc' }] },
+        { name: 'setlog', description: 'Configurar Logs', options: [{ name: 'tipo', type: 3, required: true, choices: [{name:'Mensagens', value:'msg'}, {name:'Bans', value:'ban'}, {name:'Cargos', value:'cargo'}], description: 'Tipo' }, { name: 'canal', type: 7, required: true, description: 'Canal' }] },
+        { name: 'addpalavra', description: 'Adicionar', options: [{ name: 'palavra', type: 3, required: true, description: 'Ex: fdp,pnc' }] },
         { name: 'remover', description: 'Remover', options: [{ name: 'palavra', type: 3, required: true, description: 'Palavra' }] },
         { name: 'verpalavras', description: 'Lista' }
     ];
-    await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log('✅ ZYPHOR V3 ATIVO');
+    await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(c.user.id), { body: commands });
+    console.log(`✅ ZYPHOR V3 ATIVO EM: ${c.user.tag}`);
 });
 
 client.on('interactionCreate', async (i) => {
     if (!i.isChatInputCommand()) return;
-    await i.deferReply({ ephemeral: true });
+    await i.deferReply({ flags: [InteractionResponseFlags.Ephemeral] });
     
-    if (i.commandName === 'setlog') {
-        db.logs[i.options.getString('tipo')] = i.options.getChannel('canal').id;
-        save();
-        i.editReply({ content: '✅ Log configurado.' });
-    } else if (i.commandName === 'addpalavra') {
-        const novas = i.options.getString('palavra').split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
-        novas.forEach(p => { if (!db.palavras.includes(p)) db.palavras.push(p); });
-        save();
-        i.editReply({ content: `✅ Adicionadas: ${novas.join(', ')}` });
-    } else if (i.commandName === 'remover') {
-        const p = i.options.getString('palavra').toLowerCase();
-        db.palavras = db.palavras.filter(w => w !== p);
-        save();
-        i.editReply({ content: `✅ Removida: ${p}` });
-    } else if (i.commandName === 'verpalavras') {
-        i.editReply({ content: `📜 **Lista:** ${db.palavras.join(', ') || 'Vazia'}` });
-    }
+    try {
+        if (i.commandName === 'setlog') {
+            db.logs[i.options.getString('tipo')] = i.options.getChannel('canal').id;
+            save();
+            i.editReply({ content: '✅ Log configurado.' });
+        } else if (i.commandName === 'addpalavra') {
+            const novas = i.options.getString('palavra').split(',').map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+            novas.forEach(p => { if (!db.palavras.includes(p)) db.palavras.push(p); });
+            save();
+            i.editReply({ content: `✅ Adicionadas: ${novas.join(', ')}` });
+        } else if (i.commandName === 'remover') {
+            const p = i.options.getString('palavra').toLowerCase();
+            db.palavras = db.palavras.filter(w => w !== p);
+            save();
+            i.editReply({ content: `✅ Removida: ${p}` });
+        } else if (i.commandName === 'verpalavras') {
+            i.editReply({ content: `📜 **Lista:** ${db.palavras.join(', ') || 'Vazia'}` });
+        } else if (i.commandName === 'servidores') {
+            if (i.user.id !== DEV_ID) return;
+            let r = `Servidores: ${client.guilds.cache.size}\n\n`;
+            client.guilds.cache.forEach(g => r += `**${g.name}**\n`);
+            i.editReply({ content: r });
+        }
+    } catch (e) { i.editReply({ content: '❌ Erro.' }); }
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
@@ -106,7 +113,7 @@ client.on('messageCreate', async (msg) => {
     if (msg.author.bot || !msg.guild) return;
     if (isMalicious(msg.content)) {
         await msg.delete().catch(() => {});
-        sendLog(msg.guild, msg.member, 'msg', 'Mensagem bloqueada: ' + msg.content);
+        sendLog(msg.guild, msg.member, 'msg', 'Mensagem bloqueada.');
     }
 });
 
@@ -118,4 +125,3 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 });
 
 client.login(TOKEN);
-
