@@ -1,84 +1,81 @@
 const { 
     Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, 
-    ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, REST, Routes, StringSelectMenuBuilder 
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, REST, Routes 
 } = require('discord.js');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.MessageContent, 
+        GatewayIntentBits.GuildMembers
+    ] 
+});
 
-const emojis = {
-  criar: "<:criar:1507816968286375976>",
-  confirmar: "<:corfimar:1509027559701086258>",
-  suporte: "<:Suporte:1501991877438738477>"
-};
+const db = { entrada: {}, saida: {}, canal: {} };
+const emojis = { criar: "<:criar:1507816968286375976>", confirmar: "<:corfimar:1509027559701086258>", suporte: "<:Suporte:1501991877438738477>" };
 
-// 1. REGISTRO DE COMANDOS
 const commands = [
-    new SlashCommandBuilder()
-        .setName('painelticket')
-        .setDescription('Cria o painel de atendimento')
+    new SlashCommandBuilder().setName('painelticket').setDescription('Cria painel de ticket')
         .addStringOption(o => o.setName('titulo').setDescription('Título').setRequired(true))
         .addStringOption(o => o.setName('descricao').setDescription('Descrição').setRequired(true))
-        .addChannelOption(o => o.setName('destino').setDescription('Local de criação').setRequired(true))
-        .addStringOption(o => o.setName('formato').setDescription('Tipo').addChoices({ name: 'Tópico', value: 'thread' }, { name: 'Canal', value: 'canal' }).setRequired(true))
+        .addChannelOption(o => o.setName('destino').setDescription('Local').setRequired(true))
+        .addStringOption(o => o.setName('formato').setDescription('Tipo').addChoices({ name: 'Tópico', value: 'thread' }, { name: 'Canal', value: 'canal' }).setRequired(true)),
+    new SlashCommandBuilder().setName('configurar').setDescription('Configura entrada/saída')
+        .addChannelOption(o => o.setName('canal').setDescription('Canal de logs').setRequired(true))
+        .addStringOption(o => o.setName('entrada').setDescription('Msg entrada ({user})').setRequired(true))
+        .addStringOption(o => o.setName('saida').setDescription('Msg saída ({user})').setRequired(true))
 ];
 
 client.once('ready', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log('✅ Bot Online e Comandos Registrados!');
+    console.log('✅ Bot Online!');
 });
 
-// 2. LÓGICA DO BOT
-client.on('interactionCreate', async (interaction) => {
-    
+client.on('interactionCreate', async (i) => {
     // Comando /painelticket
-    if (interaction.isChatInputCommand() && interaction.commandName === 'painelticket') {
-        const { titulo, descricao, destino, formato } = { 
-            titulo: interaction.options.getString('titulo'),
-            descricao: interaction.options.getString('descricao'),
-            destino: interaction.options.getChannel('destino'),
-            formato: interaction.options.getString('formato')
-        };
-
-        const embed = new EmbedBuilder().setTitle(`${emojis.suporte} ${titulo}`).setDescription(descricao).setColor('Blurple');
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`abrir_${formato}_${destino.id}`).setLabel('Abrir Ticket').setEmoji(emojis.criar).setStyle(ButtonStyle.Primary)
-        );
-        await interaction.reply({ embeds: [embed], components: [row] });
+    if (i.isChatInputCommand() && i.commandName === 'painelticket') {
+        const embed = new EmbedBuilder().setTitle(`${emojis.suporte} ${i.options.getString('titulo')}`).setDescription(i.options.getString('descricao')).setColor('Blurple');
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`abrir_${i.options.getString('formato')}_${i.options.getChannel('destino').id}`).setLabel('Abrir Ticket').setEmoji(emojis.criar).setStyle(ButtonStyle.Primary));
+        await i.reply({ embeds: [embed], components: [row] });
     }
 
-    // Abertura de Ticket
-    if (interaction.isButton() && interaction.customId.startsWith('abrir_')) {
-        const [_, formato, id] = interaction.customId.split('_');
+    // Comando /configurar
+    if (i.isChatInputCommand() && i.commandName === 'configurar') {
+        db.canal[i.guild.id] = i.options.getChannel('canal').id;
+        db.entrada[i.guild.id] = i.options.getString('entrada');
+        db.saida[i.guild.id] = i.options.getString('saida');
+        await i.reply({ content: `✅ Sistema configurado no canal <#${db.canal[i.guild.id]}>`, ephemeral: true });
+    }
+
+    // Lógica de Ticket
+    if (i.isButton() && i.customId.startsWith('abrir_')) {
+        const [_, formato, id] = i.customId.split('_');
+        if (i.guild.channels.cache.find(c => c.name.includes(i.user.username.toLowerCase()))) return i.reply({ content: "❌ Ticket já aberto!", ephemeral: true });
         
-        // Trava: 1 ticket por usuário
-        const existe = interaction.guild.channels.cache.find(c => c.name.includes(interaction.user.username.toLowerCase()));
-        if (existe) return interaction.reply({ content: "❌ Você já tem um ticket aberto!", ephemeral: true });
-
-        let novoTicket;
-        if (formato === 'thread') {
-            novoTicket = await interaction.guild.channels.cache.get(id).threads.create({ name: `Ticket de ${interaction.user.username}`, type: ChannelType.PrivateThread });
-        } else {
-            novoTicket = await interaction.guild.channels.create({ name: `ticket-${interaction.user.username}`, type: ChannelType.GuildText, parent: id });
-        }
-
-        const btnAtender = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId("atender_ticket").setLabel("Atender Ticket").setStyle(ButtonStyle.Success).setEmoji(emojis.confirmar)
-        );
-        await novoTicket.send({ content: `📢 ${interaction.user} abriu um ticket. Um staff deve clicar abaixo para assumir.`, components: [btnAtender] });
-        await interaction.reply({ content: `✅ Ticket criado em: ${novoTicket}`, ephemeral: true });
+        let t = formato === 'thread' ? await i.guild.channels.cache.get(id).threads.create({ name: `Ticket-${i.user.username}`, type: ChannelType.PrivateThread }) : await i.guild.channels.create({ name: `ticket-${i.user.username}`, type: ChannelType.GuildText, parent: id });
+        const btn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("atender_ticket").setLabel("Atender Ticket").setStyle(ButtonStyle.Success).setEmoji(emojis.confirmar));
+        await t.send({ content: `📢 ${i.user} abriu um ticket.`, components: [btn] });
+        await i.reply({ content: `✅ Ticket criado!`, ephemeral: true });
     }
 
-    // Atendimento Exclusivo (1 Staff)
-    if (interaction.isButton() && interaction.customId === "atender_ticket") {
-        if (interaction.message.components[0].components[0].disabled) return interaction.reply({ content: "❌ Já está sendo atendido.", ephemeral: true });
-
-        const rowDisabled = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId("atender_ticket").setLabel(`Atendido por ${interaction.user.username}`).setStyle(ButtonStyle.Secondary).setDisabled(true)
-        );
-        await interaction.message.edit({ components: [rowDisabled] });
-        await interaction.reply({ content: `✅ Você assumiu o ticket!` });
+    if (i.isButton() && i.customId === "atender_ticket") {
+        if (i.message.components[0].components[0].disabled) return i.reply({ content: "❌ Já atendido.", ephemeral: true });
+        await i.message.edit({ components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("atender_ticket").setLabel(`Atendido por ${i.user.username}`).setStyle(ButtonStyle.Secondary).setDisabled(true))] });
+        await i.reply({ content: `✅ Você assumiu!` });
     }
+});
+
+// Eventos de Entrada/Saída
+client.on('guildMemberAdd', async (m) => {
+    if (!db.canal[m.guild.id]) return;
+    m.guild.channels.cache.get(db.canal[m.guild.id]).send({ embeds: [new EmbedBuilder().setTitle("👋 Bem-vindo!").setDescription(db.entrada[m.guild.id].replace('{user}', `<@${m.id}>`)).setColor('Green')] });
+});
+
+client.on('guildMemberRemove', async (m) => {
+    if (!db.canal[m.guild.id]) return;
+    m.guild.channels.cache.get(db.canal[m.guild.id]).send({ embeds: [new EmbedBuilder().setTitle("👋 Adeus!").setDescription(db.saida[m.guild.id].replace('{user}', m.user.username)).setColor('Red')] });
 });
 
 client.login(process.env.DISCORD_TOKEN);
