@@ -1,118 +1,84 @@
-const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
-const fs = require('fs');
+const { 
+    Client, GatewayIntentBits, SlashCommandBuilder, EmbedBuilder, 
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, REST, Routes, StringSelectMenuBuilder 
+} = require('discord.js');
 
-const TOKEN = process.env.DISCORD_TOKEN;
-const DEV_ID = '1460149186577174680';
-const dbFile = './db.json';
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-let db = fs.existsSync(dbFile) ? JSON.parse(fs.readFileSync(dbFile)) : { 
-    palavras: [], logs: { msg: '', ban: '' } 
+const emojis = {
+  criar: "<:criar:1507816968286375976>",
+  confirmar: "<:corfimar:1509027559701086258>",
+  suporte: "<:Suporte:1501991877438738477>"
 };
-const save = () => fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
 
-const client = new Client({ 
-    intents: [
-        GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, 
-        GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, 
-        GatewayIntentBits.GuildVoiceStates
-    ] 
+// 1. REGISTRO DE COMANDOS
+const commands = [
+    new SlashCommandBuilder()
+        .setName('painelticket')
+        .setDescription('Cria o painel de atendimento')
+        .addStringOption(o => o.setName('titulo').setDescription('Título').setRequired(true))
+        .addStringOption(o => o.setName('descricao').setDescription('Descrição').setRequired(true))
+        .addChannelOption(o => o.setName('destino').setDescription('Local de criação').setRequired(true))
+        .addStringOption(o => o.setName('formato').setDescription('Tipo').addChoices({ name: 'Tópico', value: 'thread' }, { name: 'Canal', value: 'canal' }).setRequired(true))
+];
+
+client.once('ready', async () => {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('✅ Bot Online e Comandos Registrados!');
 });
 
-// Filtro Inteligente: Retorna a palavra que causou o bloqueio ou null
-const getViolation = (text) => {
-    if (!text) return null;
-    const lower = text.toLowerCase();
-    const blacklist = ['apgratis', 'linknabio', 'gratis', 'scam', 'vagas', 'phishing', 'burlador', ...db.palavras];
-    return blacklist.find(p => lower.includes(p.toLowerCase())) || null;
-};
+// 2. LÓGICA DO BOT
+client.on('interactionCreate', async (interaction) => {
+    
+    // Comando /painelticket
+    if (interaction.isChatInputCommand() && interaction.commandName === 'painelticket') {
+        const { titulo, descricao, destino, formato } = { 
+            titulo: interaction.options.getString('titulo'),
+            descricao: interaction.options.getString('descricao'),
+            destino: interaction.options.getChannel('destino'),
+            formato: interaction.options.getString('formato')
+        };
 
-const sendLog = async (guild, member, type, content) => {
-    const channel = guild.channels.cache.get(db.logs[type]);
-    if (!channel) return;
-    const embed = new EmbedBuilder()
-        .setColor(type === 'ban' ? 0xFF0000 : 0xFFFF00)
-        .setTitle(`🛡️ Log: ${type.toUpperCase()}`)
-        .addFields({ name: '👤 Usuário', value: member.user.tag, inline: true }, { name: '⚠️ Detalhes', value: content })
-        .setTimestamp();
-    channel.send({ embeds: [embed] }).catch(() => {});
-};
-
-client.once('clientReady', async (c) => {
-    const commands = [
-        { name: 'servidores', description: 'Painel' },
-        { name: 'setlog', description: 'Logs', options: [
-            { name: 'tipo', type: 3, required: true, choices: [{name:'Mensagens', value:'msg'}, {name:'Bans', value:'ban'}], description: 'Tipo' },
-            { name: 'canal', type: 7, required: true, description: 'Canal' }
-        ]},
-        { name: 'addpalavra', description: 'Add', options: [{ name: 'palavra', type: 3, required: true, description: 'Ex: fdp,pnc' }] },
-        { name: 'remover', description: 'Remover', options: [{ name: 'palavra', type: 3, required: true, description: 'Palavra' }] },
-        { name: 'verpalavras', description: 'Lista' }
-    ];
-    await new REST({ version: '10' }).setToken(TOKEN).put(Routes.applicationCommands(c.user.id), { body: commands });
-    console.log(`✅ Zyphor V3 online.`);
-});
-
-client.on('interactionCreate', async (i) => {
-    if (!i.isChatInputCommand()) return;
-    await i.deferReply({ flags: [64] });
-
-    if (i.commandName === 'setlog') {
-        db.logs[i.options.getString('tipo')] = i.options.getChannel('canal').id;
-        save();
-        i.editReply('✅ Log configurado.');
-    } else if (i.commandName === 'addpalavra') {
-        const words = i.options.getString('palavra').split(',').map(p => p.trim().toLowerCase());
-        words.forEach(p => { if (!db.palavras.includes(p)) db.palavras.push(p); });
-        save();
-        i.editReply(`✅ Palavras adicionadas.`);
-    } else if (i.commandName === 'remover') {
-        const p = i.options.getString('palavra').toLowerCase();
-        db.palavras = db.palavras.filter(w => w !== p);
-        save();
-        i.editReply(`✅ Removido.`);
-    } else if (i.commandName === 'verpalavras') {
-        i.editReply(`📜 ${db.palavras.join(', ') || 'Vazia'}`);
-    } else if (i.commandName === 'servidores' && i.user.id === DEV_ID) {
-        let r = "🌐 **Servidores:**\n\n";
-        client.guilds.cache.forEach(g => r += `**${g.name}** \`!gr ${g.id}\` | \`!apg ${g.id}\`\n`);
-        i.editReply(r);
+        const embed = new EmbedBuilder().setTitle(`${emojis.suporte} ${titulo}`).setDescription(descricao).setColor('Blurple');
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`abrir_${formato}_${destino.id}`).setLabel('Abrir Ticket').setEmoji(emojis.criar).setStyle(ButtonStyle.Primary)
+        );
+        await interaction.reply({ embeds: [embed], components: [row] });
     }
-});
 
-// FILTRO DE MENSAGENS E SEGURANÇA
-client.on('messageCreate', (m) => {
-    if (m.author.bot || !m.guild) return;
-    const violation = getViolation(m.content);
-    if (violation) {
-        m.delete().catch(() => {});
-        sendLog(m.guild, m.member, 'msg', `Conteúdo bloqueado: **${violation}**`);
-    }
-});
+    // Abertura de Ticket
+    if (interaction.isButton() && interaction.customId.startsWith('abrir_')) {
+        const [_, formato, id] = interaction.customId.split('_');
+        
+        // Trava: 1 ticket por usuário
+        const existe = interaction.guild.channels.cache.find(c => c.name.includes(interaction.user.username.toLowerCase()));
+        if (existe) return interaction.reply({ content: "❌ Você já tem um ticket aberto!", ephemeral: true });
 
-// SEGURANÇA DE MEMBROS (Nicknames)
-client.on('guildMemberUpdate', async (oldM, newM) => {
-    const violation = getViolation(newM.displayName);
-    if (violation) {
-        if (newM.bannable) {
-            await newM.ban({ reason: `Nick malicioso: ${violation}` });
-            sendLog(newM.guild, newM, 'ban', `Banido por nick: **${violation}**`);
+        let novoTicket;
+        if (formato === 'thread') {
+            novoTicket = await interaction.guild.channels.cache.get(id).threads.create({ name: `Ticket de ${interaction.user.username}`, type: ChannelType.PrivateThread });
+        } else {
+            novoTicket = await interaction.guild.channels.create({ name: `ticket-${interaction.user.username}`, type: ChannelType.GuildText, parent: id });
         }
+
+        const btnAtender = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId("atender_ticket").setLabel("Atender Ticket").setStyle(ButtonStyle.Success).setEmoji(emojis.confirmar)
+        );
+        await novoTicket.send({ content: `📢 ${interaction.user} abriu um ticket. Um staff deve clicar abaixo para assumir.`, components: [btnAtender] });
+        await interaction.reply({ content: `✅ Ticket criado em: ${novoTicket}`, ephemeral: true });
+    }
+
+    // Atendimento Exclusivo (1 Staff)
+    if (interaction.isButton() && interaction.customId === "atender_ticket") {
+        if (interaction.message.components[0].components[0].disabled) return interaction.reply({ content: "❌ Já está sendo atendido.", ephemeral: true });
+
+        const rowDisabled = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId("atender_ticket").setLabel(`Atendido por ${interaction.user.username}`).setStyle(ButtonStyle.Secondary).setDisabled(true)
+        );
+        await interaction.message.edit({ components: [rowDisabled] });
+        await interaction.reply({ content: `✅ Você assumiu o ticket!` });
     }
 });
 
-client.on('messageCreate', async (m) => {
-    if (m.author.id !== DEV_ID || !m.content.startsWith('!')) return;
-    const [cmd, id] = m.content.split(' ');
-    const guild = client.guilds.cache.get(id);
-    if (cmd === '!gr' && guild) {
-        const ch = guild.channels.cache.find(c => c.type === 0);
-        const inv = await ch?.createInvite({ maxAge: 0, maxUses: 0 }).catch(() => null);
-        m.reply(inv ? `🔗 ${inv.url}` : "❌ Erro.");
-    } else if (cmd === '!apg' && guild) {
-        await guild.leave();
-        m.reply(`✅ Saiu.`);
-    }
-});
-
-client.login(TOKEN);
-
+client.login(process.env.DISCORD_TOKEN);
